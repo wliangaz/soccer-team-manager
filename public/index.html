@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soccer Team Manager</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <div id="login-screen" class="screen">
+            <div class="container">
+                <h1>⚽ Soccer Team Manager</h1>
+                <div class="auth-tabs">
+                    <button class="tab-btn active" onclick="showLogin()">Login</button>
+                </div>
+                
+                <div id="login-form" class="auth-form">
+                    <form onsubmit="login(event)">
+                        <input type="text" id="login-username" placeholder="Username" required>
+                        <input type="password" id="login-password" placeholder="Password" required>
+                        <button type="submit">Login</button>
+                    </form>
+                    
+                    <div id="admin-buttons" class="admin-buttons hidden">
+                        <button onclick="showAdminAddGame()">Add a game</button>
+                        <button onclick="showAdminRoster()">Roster</button>
+                    </div>
+                </div>
+                
+                
+                <div id="error-message" class="error hidden"></div>
+                
+                <!-- Admin Add Game Modal -->
+                <div id="admin-add-game-modal" class="modal hidden">
+                    <div class="modal-content">
+                        <h3>Add New Game</h3>
+                        <form onsubmit="adminAddGame(event)">
+                            <input type="text" id="admin-opponent" placeholder="Opponent Team" required>
+                            <input type="date" id="admin-game-date" required>
+                            <input type="time" id="admin-game-time" required>
+                            <input type="text" id="admin-location" placeholder="Location" required>
+                            <div class="modal-buttons">
+                                <button type="submit">Add Game</button>
+                                <button type="button" onclick="hideAdminModals()">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- Admin Roster Modal -->
+                <div id="admin-roster-modal" class="modal hidden">
+                    <div class="modal-content">
+                        <h3>Roster Management</h3>
+                        <div id="admin-roster-count" class="roster-count"></div>
+                        
+                        <div class="roster-section">
+                            <h4>Add Player Manually</h4>
+                            <form onsubmit="adminAddPlayer(event)">
+                                <input type="text" id="admin-player-name" placeholder="Player Name" required>
+                                <input type="text" id="admin-parent-name" placeholder="Parent Name" required>
+                                <div class="modal-buttons">
+                                    <button type="submit">Add Player</button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <div class="roster-section">
+                            <h4>Upload CSV File</h4>
+                            <p>CSV format: player, parent name</p>
+                            <form onsubmit="adminUploadCSV(event)" enctype="multipart/form-data">
+                                <input type="file" id="admin-csv-file" accept=".csv" required>
+                                <div class="modal-buttons">
+                                    <button type="submit">Upload CSV</button>
+                                </div>
+                            </form>
+                            <div id="admin-csv-status"></div>
+                        </div>
+                        
+                        <div class="modal-buttons">
+                            <button type="button" onclick="hideAdminModals()">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="main-screen" class="screen hidden">
+            <header>
+                <h1>⚽ Soccer Team Manager</h1>
+                <div class="user-info">
+                    <span id="welcome-text"></span>
+                    <button onclick="logout()">Logout</button>
+                </div>
+            </header>
+
+            <nav id="nav-tabs">
+                <button class="nav-btn active" onclick="showTab('games')">Games</button>
+                <button class="nav-btn admin-only" onclick="showTab('add-game')">Add Game</button>
+                <button class="nav-btn admin-only" onclick="showTab('roster')">Roster</button>
+                <button class="nav-btn admin-only" onclick="showTab('populate-roster')">Roster Edit</button>
+            </nav>
+
+            <div id="games-tab" class="tab-content">
+                <h2>Tournament Schedule</h2>
+                <div id="games-list"></div>
+            </div>
+
+            <div id="add-game-tab" class="tab-content hidden">
+                <h2>Add New Game</h2>
+                <form onsubmit="addGame(event)">
+                    <input type="text" id="opponent" placeholder="Opponent Team" required>
+                    <input type="date" id="game-date" required>
+                    <input type="time" id="game-time" required>
+                    <input type="text" id="location" placeholder="Location" required>
+                    <button type="submit">Add Game</button>
+                </form>
+            </div>
+
+            <div id="roster-tab" class="tab-content hidden">
+                <h2>Team Roster</h2>
+                <div id="roster-list"></div>
+            </div>
+
+            <div id="populate-roster-tab" class="tab-content hidden">
+                <h2>Populate Roster</h2>
+                
+                <div class="roster-populate-section">
+                    <h3>Add Individual Player</h3>
+                    <form onsubmit="addPlayer(event)">
+                        <input type="text" id="player-username" placeholder="Username (optional)" />
+                        <input type="text" id="player-parent-name" placeholder="Parent Name" required />
+                        <input type="text" id="player-kid-name" placeholder="Kid Name" required />
+                        <button type="submit">Add Player</button>
+                    </form>
+                </div>
+
+                <div class="roster-populate-section">
+                    <h3>Upload CSV File</h3>
+                    <p>CSV format: parent_name, kid_name, username (optional)</p>
+                    <form onsubmit="uploadCSV(event)" enctype="multipart/form-data">
+                        <input type="file" id="csv-file" accept=".csv" required />
+                        <button type="submit">Upload CSV</button>
+                    </form>
+                    <div id="csv-upload-status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
