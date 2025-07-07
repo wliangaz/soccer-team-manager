@@ -44,7 +44,9 @@ function showMainScreen() {
     
     document.getElementById('welcome-text').textContent = `Welcome, ${displayName}!`;
     
-    if (currentUser.role !== 'admin') {
+    if (currentUser.role === 'admin') {
+        document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+    } else {
         document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
     }
     
@@ -138,6 +140,7 @@ async function displayGames(games) {
         
         const gameCard = document.createElement('div');
         gameCard.className = 'game-card';
+        gameCard.dataset.gameId = game.id;
         gameCard.innerHTML = `
             <div class="game-header">
                 <div class="game-title">vs ${game.opponent}</div>
@@ -171,6 +174,14 @@ async function displayGames(games) {
                 </div>
             </div>
         `;
+        
+        // Add right-click context menu for admin users AFTER setting innerHTML
+        if (currentUser.role === 'admin') {
+            gameCard.addEventListener('contextmenu', (e) => {
+                console.log('Right-click detected on game:', game.id, game.opponent);
+                showGameContextMenu(e, game.id, game.opponent);
+            });
+        }
         
         gamesList.appendChild(gameCard);
     }
@@ -457,6 +468,7 @@ async function adminAddGame(event) {
             event.target.reset();
             hideAdminModals();
             showError('Game added successfully!');
+            showMainScreen();
         } else {
             const data = await response.json();
             showError(data.error || 'Failed to add game');
@@ -550,5 +562,101 @@ async function adminUploadCSV(event) {
         }
     } catch (error) {
         statusDiv.innerHTML = '❌ Upload failed. Please try again.';
+    }
+}
+
+function showGameContextMenu(event, gameId, opponent) {
+    console.log('=== Context Menu Debug ===');
+    console.log('Event:', event);
+    console.log('GameId:', gameId);
+    console.log('Opponent:', opponent);
+    console.log('Event pageX:', event.pageX);
+    console.log('Event pageY:', event.pageY);
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Remove any existing menu
+    hideGameContextMenu();
+    
+    // Create context menu
+    const contextMenu = document.createElement('div');
+    contextMenu.className = 'context-menu';
+    contextMenu.id = 'game-context-menu';
+    contextMenu.style.position = 'fixed';
+    contextMenu.style.left = event.clientX + 'px';
+    contextMenu.style.top = event.clientY + 'px';
+    contextMenu.style.backgroundColor = 'white';
+    contextMenu.style.border = '1px solid #ccc';
+    contextMenu.style.borderRadius = '4px';
+    contextMenu.style.padding = '8px';
+    contextMenu.style.zIndex = '9999';
+    contextMenu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+    
+    // Create delete option
+    const deleteOption = document.createElement('div');
+    deleteOption.textContent = '🗑️ Delete Game vs ' + opponent;
+    deleteOption.style.padding = '8px 12px';
+    deleteOption.style.cursor = 'pointer';
+    deleteOption.style.borderRadius = '4px';
+    deleteOption.addEventListener('mouseenter', () => {
+        deleteOption.style.backgroundColor = '#f0f0f0';
+    });
+    deleteOption.addEventListener('mouseleave', () => {
+        deleteOption.style.backgroundColor = 'transparent';
+    });
+    deleteOption.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('Delete clicked for game:', gameId);
+        hideGameContextMenu();
+        deleteGame(gameId, opponent);
+    });
+    
+    contextMenu.appendChild(deleteOption);
+    document.body.appendChild(contextMenu);
+    
+    console.log('Context menu created and added to body');
+    console.log('Menu element:', contextMenu);
+    console.log('Menu position:', contextMenu.style.left, contextMenu.style.top);
+    
+    // Hide menu when clicking elsewhere
+    setTimeout(() => {
+        document.addEventListener('click', hideGameContextMenu, { once: true });
+    }, 100);
+}
+
+function hideGameContextMenu() {
+    const existingMenu = document.getElementById('game-context-menu');
+    if (existingMenu) {
+        existingMenu.remove();
+    }
+    document.removeEventListener('click', hideGameContextMenu);
+}
+
+async function deleteGame(gameId, opponent) {
+    hideGameContextMenu();
+    
+    if (!confirm(`Are you sure you want to delete the game vs ${opponent}? This will also remove all signups for this game.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/games/${gameId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showError('Game deleted successfully!');
+            loadGames();
+        } else {
+            showError(data.error || 'Failed to delete game');
+        }
+    } catch (error) {
+        showError('Error deleting game. Please try again.');
     }
 }

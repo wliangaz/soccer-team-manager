@@ -215,6 +215,34 @@ app.delete('/api/games/:id/signup', authenticateToken, (req, res) => {
   );
 });
 
+app.delete('/api/games/:id', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const gameId = req.params.id;
+  
+  // First delete all signups for this game
+  db.run('DELETE FROM signups WHERE game_id = ?', [gameId], function(err) {
+    if (err) {
+      return res.status(500).json({ error: 'Error deleting game signups' });
+    }
+    
+    // Then delete the game itself
+    db.run('DELETE FROM games WHERE id = ?', [gameId], function(err) {
+      if (err) {
+        return res.status(500).json({ error: 'Error deleting game' });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Game not found' });
+      }
+      
+      res.json({ message: 'Game deleted successfully' });
+    });
+  });
+});
+
 app.get('/api/roster', authenticateToken, (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });

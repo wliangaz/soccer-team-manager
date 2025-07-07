@@ -377,6 +377,36 @@ header {
     font-size: 14px;
 }
 
+.context-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    z-index: 1000;
+    min-width: 120px;
+}
+
+.context-menu-item {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #e53e3e;
+    font-size: 14px;
+}
+
+.context-menu-item:hover {
+    background: #fed7d7;
+}
+
+.context-menu-item:first-child {
+    border-radius: 8px 8px 0 0;
+}
+
+.context-menu-item:last-child {
+    border-radius: 0 0 8px 8px;
+}
+
 @media (max-width: 768px) {
     .container {
         margin: 20px;
