@@ -23,7 +23,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const upload = multer({ dest: 'uploads/' });
 
-const db = new sqlite3.Database('./soccer_team.db');
+// Try to create database in writable directory, fallback to in-memory
+let db;
+try {
+  // Try persistent file database first
+  db = new sqlite3.Database('./soccer_team.db');
+  console.log('Using file database: ./soccer_team.db');
+} catch (err) {
+  console.log('File database failed, using in-memory database:', err.message);
+  // Fallback to in-memory database for deployment environments
+  db = new sqlite3.Database(':memory:');
+}
 
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -78,8 +88,13 @@ const authenticateToken = (req, res, next) => {
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   
+  console.log('Login attempt:', { username, passwordProvided: !!password });
+  
   db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-    if (err) return res.status(500).json({ error: 'Database error' });
+    if (err) {
+      console.error('Database error during login:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
     
     if (!user) {
       // Try default credentials: look for user by kid's first name
