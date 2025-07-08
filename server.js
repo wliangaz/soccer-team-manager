@@ -66,8 +66,15 @@ db.serialize(() => {
   )`);
 
   const adminPassword = bcrypt.hashSync('admin123', 10);
+  console.log('Creating admin user with password hash:', adminPassword);
   db.run(`INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)`, 
-    ['admin', adminPassword, 'admin']);
+    ['admin', adminPassword, 'admin'], function(err) {
+      if (err) {
+        console.error('Error creating admin user:', err);
+      } else {
+        console.log('Admin user created/verified successfully');
+      }
+    });
 });
 
 const authenticateToken = (req, res, next) => {
@@ -85,6 +92,15 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Health check endpoint to verify server is running
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    database: db ? 'connected' : 'disconnected' 
+  });
+});
+
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   
@@ -97,15 +113,24 @@ app.post('/api/login', (req, res) => {
     }
     
     if (!user) {
+      console.log('User not found, trying default credentials for:', username);
       // Try default credentials: look for user by kid's first name
       db.get('SELECT * FROM users WHERE kid_name LIKE ? AND role = "parent"', [`${username}%`], (err, defaultUser) => {
-        if (err) return res.status(500).json({ error: 'Database error' });
-        if (!defaultUser) return res.status(401).json({ error: 'Invalid credentials' });
+        if (err) {
+          console.error('Database error during default user lookup:', err);
+          return res.status(500).json({ error: 'Database error' });
+        }
+        if (!defaultUser) {
+          console.log('No default user found for:', username);
+          return res.status(401).json({ error: 'Invalid credentials' });
+        }
         
         // Check if password matches default format: kidFirstName_parentFirstName
         const kidFirstName = defaultUser.kid_name.split(' ')[0];
         const parentFirstName = defaultUser.parent_name.split(' ')[0];
         const expectedPassword = `${kidFirstName}_${parentFirstName}`;
+        
+        console.log('Checking default password for:', username, 'Expected:', expectedPassword);
         
         if (password === expectedPassword) {
           const token = jwt.sign(
@@ -113,22 +138,29 @@ app.post('/api/login', (req, res) => {
             JWT_SECRET,
             { expiresIn: '24h' }
           );
+          console.log('Default user login successful for:', username);
           res.json({ token, user: { id: defaultUser.id, username: defaultUser.username, role: defaultUser.role, kid_name: defaultUser.kid_name } });
         } else {
+          console.log('Default password mismatch for:', username);
           res.status(401).json({ error: 'Invalid credentials' });
         }
       });
       return;
     }
 
+    console.log('Found user:', user.username, 'Role:', user.role);
+    
     if (bcrypt.compareSync(password, user.password)) {
+      console.log('Password verification successful for:', user.username);
       const token = jwt.sign(
         { id: user.id, username: user.username, role: user.role },
         JWT_SECRET,
         { expiresIn: '24h' }
       );
+      console.log('Login successful for:', user.username);
       res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
     } else {
+      console.log('Password verification failed for:', user.username);
       res.status(401).json({ error: 'Invalid credentials' });
     }
   });
