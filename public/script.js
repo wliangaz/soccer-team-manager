@@ -107,6 +107,8 @@ function showTab(tabName) {
     
     if (tabName === 'roster') {
         loadRoster();
+    } else if (tabName === 'games') {
+        loadGames();
     }
 }
 
