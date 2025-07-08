@@ -1,5 +1,6 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
@@ -23,59 +24,130 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const upload = multer({ dest: 'uploads/' });
 
-// Try to create database in writable directory, fallback to in-memory
+// Database configuration - PostgreSQL for production, SQLite for development
+const DATABASE_URL = process.env.DATABASE_URL;
 let db;
-try {
-  // Try persistent file database first
-  db = new sqlite3.Database('./soccer_team.db');
-  console.log('Using file database: ./soccer_team.db');
-} catch (err) {
-  console.log('File database failed, using in-memory database:', err.message);
-  // Fallback to in-memory database for deployment environments
-  db = new sqlite3.Database(':memory:');
+let isPostgres = false;
+
+if (DATABASE_URL) {
+  // Production: Use PostgreSQL
+  console.log('Using PostgreSQL database');
+  isPostgres = true;
+  db = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  });
+} else {
+  // Development: Use SQLite
+  try {
+    db = new sqlite3.Database('./soccer_team.db');
+    console.log('Using SQLite database: ./soccer_team.db');
+  } catch (err) {
+    console.log('SQLite failed, using in-memory database:', err.message);
+    db = new sqlite3.Database(':memory:');
+  }
 }
 
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    role TEXT NOT NULL,
-    parent_name TEXT,
-    kid_name TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS games (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    opponent TEXT NOT NULL,
-    date TEXT NOT NULL,
-    time TEXT NOT NULL,
-    location TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS signups (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    game_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    signed_up_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (game_id) REFERENCES games (id),
-    FOREIGN KEY (user_id) REFERENCES users (id),
-    UNIQUE(game_id, user_id)
-  )`);
-
+// Database initialization function
+async function initializeDatabase() {
   const adminPassword = bcrypt.hashSync('admin123', 10);
-  console.log('Creating admin user with password hash:', adminPassword);
-  db.run(`INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)`, 
-    ['admin', adminPassword, 'admin'], function(err) {
-      if (err) {
-        console.error('Error creating admin user:', err);
-      } else {
-        console.log('Admin user created/verified successfully');
-      }
+  
+  if (isPostgres) {
+    // PostgreSQL schema
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          username VARCHAR(255) UNIQUE NOT NULL,
+          password VARCHAR(255) NOT NULL,
+          role VARCHAR(50) NOT NULL,
+          parent_name VARCHAR(255),
+          kid_name VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS games (
+          id SERIAL PRIMARY KEY,
+          opponent VARCHAR(255) NOT NULL,
+          date VARCHAR(10) NOT NULL,
+          time VARCHAR(10) NOT NULL,
+          location VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS signups (
+          id SERIAL PRIMARY KEY,
+          game_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          signed_up_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (game_id) REFERENCES games (id),
+          FOREIGN KEY (user_id) REFERENCES users (id),
+          UNIQUE(game_id, user_id)
+        )
+      `);
+
+      // Create admin user
+      await db.query(`
+        INSERT INTO users (username, password, role) 
+        VALUES ($1, $2, $3) 
+        ON CONFLICT (username) DO NOTHING
+      `, ['admin', adminPassword, 'admin']);
+
+      console.log('PostgreSQL database initialized successfully');
+    } catch (err) {
+      console.error('Error initializing PostgreSQL:', err);
+    }
+  } else {
+    // SQLite schema
+    db.serialize(() => {
+      db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL,
+        parent_name TEXT,
+        kid_name TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`);
+
+      db.run(`CREATE TABLE IF NOT EXISTS games (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        opponent TEXT NOT NULL,
+        date TEXT NOT NULL,
+        time TEXT NOT NULL,
+        location TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`);
+
+      db.run(`CREATE TABLE IF NOT EXISTS signups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        game_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        signed_up_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (game_id) REFERENCES games (id),
+        FOREIGN KEY (user_id) REFERENCES users (id),
+        UNIQUE(game_id, user_id)
+      )`);
+
+      console.log('Creating admin user with password hash:', adminPassword);
+      db.run(`INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)`, 
+        ['admin', adminPassword, 'admin'], function(err) {
+          if (err) {
+            console.error('Error creating admin user:', err);
+          } else {
+            console.log('Admin user created/verified successfully');
+          }
+        });
     });
-});
+  }
+}
+
+// Initialize database
+initializeDatabase();
 
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -92,60 +164,102 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Database helper functions
+const dbQuery = (sql, params = []) => {
+  return new Promise((resolve, reject) => {
+    if (isPostgres) {
+      db.query(sql, params, (err, result) => {
+        if (err) reject(err);
+        else resolve(result.rows);
+      });
+    } else {
+      db.all(sql, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    }
+  });
+};
+
+const dbGet = (sql, params = []) => {
+  return new Promise((resolve, reject) => {
+    if (isPostgres) {
+      db.query(sql, params, (err, result) => {
+        if (err) reject(err);
+        else resolve(result.rows[0]);
+      });
+    } else {
+      db.get(sql, params, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    }
+  });
+};
+
+const dbRun = (sql, params = []) => {
+  return new Promise((resolve, reject) => {
+    if (isPostgres) {
+      db.query(sql, params, (err, result) => {
+        if (err) reject(err);
+        else resolve({ insertId: result.insertId, changes: result.rowCount });
+      });
+    } else {
+      db.run(sql, params, function(err) {
+        if (err) reject(err);
+        else resolve({ insertId: this.lastID, changes: this.changes });
+      });
+    }
+  });
+};
+
 // Health check endpoint to verify server is running
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    database: db ? 'connected' : 'disconnected' 
+    database: db ? 'connected' : 'disconnected',
+    dbType: isPostgres ? 'PostgreSQL' : 'SQLite'
   });
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   
   console.log('Login attempt:', { username, passwordProvided: !!password });
   
-  db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-    if (err) {
-      console.error('Database error during login:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
+  try {
+    const user = await dbGet('SELECT * FROM users WHERE username = ' + (isPostgres ? '$1' : '?'), [username]);
     
     if (!user) {
       console.log('User not found, trying default credentials for:', username);
       // Try default credentials: look for user by kid's first name
-      db.get('SELECT * FROM users WHERE kid_name LIKE ? AND role = "parent"', [`${username}%`], (err, defaultUser) => {
-        if (err) {
-          console.error('Database error during default user lookup:', err);
-          return res.status(500).json({ error: 'Database error' });
-        }
-        if (!defaultUser) {
-          console.log('No default user found for:', username);
-          return res.status(401).json({ error: 'Invalid credentials' });
-        }
-        
-        // Check if password matches default format: kidFirstName_parentFirstName
-        const kidFirstName = defaultUser.kid_name.split(' ')[0];
-        const parentFirstName = defaultUser.parent_name.split(' ')[0];
-        const expectedPassword = `${kidFirstName}_${parentFirstName}`;
-        
-        console.log('Checking default password for:', username, 'Expected:', expectedPassword);
-        
-        if (password === expectedPassword) {
-          const token = jwt.sign(
-            { id: defaultUser.id, username: defaultUser.username, role: defaultUser.role, kid_name: defaultUser.kid_name },
-            JWT_SECRET,
-            { expiresIn: '24h' }
-          );
-          console.log('Default user login successful for:', username);
-          res.json({ token, user: { id: defaultUser.id, username: defaultUser.username, role: defaultUser.role, kid_name: defaultUser.kid_name } });
-        } else {
-          console.log('Default password mismatch for:', username);
-          res.status(401).json({ error: 'Invalid credentials' });
-        }
-      });
-      return;
+      const defaultUser = await dbGet('SELECT * FROM users WHERE kid_name LIKE ' + (isPostgres ? '$1' : '?') + ' AND role = ' + (isPostgres ? '$2' : '?'), [`${username}%`, 'parent']);
+      
+      if (!defaultUser) {
+        console.log('No default user found for:', username);
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+      
+      // Check if password matches default format: kidFirstName_parentFirstName
+      const kidFirstName = defaultUser.kid_name.split(' ')[0];
+      const parentFirstName = defaultUser.parent_name.split(' ')[0];
+      const expectedPassword = `${kidFirstName}_${parentFirstName}`;
+      
+      console.log('Checking default password for:', username, 'Expected:', expectedPassword);
+      
+      if (password === expectedPassword) {
+        const token = jwt.sign(
+          { id: defaultUser.id, username: defaultUser.username, role: defaultUser.role, kid_name: defaultUser.kid_name },
+          JWT_SECRET,
+          { expiresIn: '24h' }
+        );
+        console.log('Default user login successful for:', username);
+        return res.json({ token, user: { id: defaultUser.id, username: defaultUser.username, role: defaultUser.role, kid_name: defaultUser.kid_name } });
+      } else {
+        console.log('Default password mismatch for:', username);
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
     }
 
     console.log('Found user:', user.username, 'Role:', user.role);
@@ -163,7 +277,10 @@ app.post('/api/login', (req, res) => {
       console.log('Password verification failed for:', user.username);
       res.status(401).json({ error: 'Invalid credentials' });
     }
-  });
+  } catch (err) {
+    console.error('Database error during login:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 app.post('/api/register', (req, res) => {
@@ -190,28 +307,32 @@ app.post('/api/register', (req, res) => {
   );
 });
 
-app.get('/api/games', authenticateToken, (req, res) => {
-  db.all('SELECT * FROM games ORDER BY date, time', (err, games) => {
-    if (err) return res.status(500).json({ error: 'Database error' });
+app.get('/api/games', authenticateToken, async (req, res) => {
+  try {
+    const games = await dbQuery('SELECT * FROM games ORDER BY date, time');
     res.json(games);
-  });
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
-app.post('/api/games', authenticateToken, (req, res) => {
+app.post('/api/games', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
   const { opponent, date, time, location } = req.body;
   
-  db.run(
-    'INSERT INTO games (opponent, date, time, location) VALUES (?, ?, ?, ?)',
-    [opponent, date, time, location],
-    function(err) {
-      if (err) return res.status(500).json({ error: 'Database error' });
-      res.json({ id: this.lastID, opponent, date, time, location });
-    }
-  );
+  try {
+    const result = await dbRun(
+      'INSERT INTO games (opponent, date, time, location) VALUES (' + 
+      (isPostgres ? '$1, $2, $3, $4' : '?, ?, ?, ?') + ')',
+      [opponent, date, time, location]
+    );
+    res.json({ id: result.insertId, opponent, date, time, location });
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 app.get('/api/games/:id/signups', authenticateToken, (req, res) => {
